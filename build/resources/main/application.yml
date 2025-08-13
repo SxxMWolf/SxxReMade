@@ -1,0 +1,40 @@
+#spring:
+# datasource:
+#   url: jdbc:postgresql://3.34.179.255:5432/recorddb
+#   username: recorduser
+#   password: recordpass
+#   driver-class-name: org.postgresql.Driver
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/recorddb
+    username: postgres
+    password: recordpass
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+cloud:
+  aws:
+    credentials:
+      access-key: ${AWS_ACCESS_KEY_ID}
+      secret-key: ${AWS_SECRET_ACCESS_KEY}
+    region:
+      static: ap-northeast-2
+    s3:
+      bucket: recording-bucket
+
+google:
+  credentials:
+    path: src/main/resources/gcp-stt-key.json
+
+openai:
+  api:
+    key: ${OPENAI_API_KEY}
