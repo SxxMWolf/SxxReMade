@@ -2,31 +2,64 @@ package com.example.record.STT;
 
 import com.google.cloud.speech.v1.*;
 import com.google.protobuf.ByteString;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 @Service
 public class SttService {
 
-    // 로컬 음성 파일을 읽어 Google STT API로 텍스트 변환
+    @Value("${stt.ffmpeg.path:ffmpeg}")
+    private String ffmpegPath;
+
+    /** 업로드 파일을 LINEAR16 16kHz mono WAV로 변환 */
+    private Path convertToWav(Path inputFile) throws Exception {
+        Path outputFile = Files.createTempFile("stt_converted_", ".wav");
+
+        ProcessBuilder pb = new ProcessBuilder(
+                ffmpegPath,
+                "-y",
+                "-i", inputFile.toString(),
+                "-ar", "16000",
+                "-ac", "1",
+                "-c:a", "pcm_s16le",
+                outputFile.toString()
+        );
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+
+        StringBuilder log = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(
+                new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) log.append(line).append('\n');
+        }
+
+        int exit = p.waitFor();
+        if (exit != 0) {
+            try { Files.deleteIfExists(outputFile); } catch (Exception ignore) {}
+            throw new RuntimeException("ffmpeg 변환 실패(exit=" + exit + ")\n" + log);
+        }
+        return outputFile;
+    }
+
+    /** 변환된 WAV를 Google STT에 전달하여 텍스트로 변환 */
     public String transcribeLocalFile(String filePath) throws Exception {
+        Path input = Path.of(filePath);
+        Path wav = convertToWav(input);
+
         try (SpeechClient speechClient = SpeechClient.create()) {
-            Path path = Path.of(filePath);
-            byte[] data = Files.readAllBytes(path);
+            byte[] data = Files.readAllBytes(wav);
             ByteString audioBytes = ByteString.copyFrom(data);
 
-            // 파일 확장자로 간단 분기 (정석은 ffmpeg로 LINEAR16 통일)
-            String lower = filePath.toLowerCase();
-            RecognitionConfig.AudioEncoding enc = RecognitionConfig.AudioEncoding.LINEAR16;
-            if (lower.endsWith(".mp3")) enc = RecognitionConfig.AudioEncoding.MP3;
-            else if (lower.endsWith(".flac")) enc = RecognitionConfig.AudioEncoding.FLAC;
-            else if (lower.endsWith(".ogg")) enc = RecognitionConfig.AudioEncoding.OGG_OPUS;
-            // 그 외는 기본 LINEAR16
-
             RecognitionConfig config = RecognitionConfig.newBuilder()
-                    .setEncoding(enc)
+                    .setEncoding(RecognitionConfig.AudioEncoding.LINEAR16)
+                    .setSampleRateHertz(16000)
                     .setLanguageCode("ko-KR")
                     .build();
 
@@ -43,6 +76,8 @@ public class SttService {
                 }
             }
             return result.toString().trim();
+        } finally {
+            try { Files.deleteIfExists(wav); } catch (Exception ignore) {}
         }
     }
 }
